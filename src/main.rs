@@ -1,12 +1,13 @@
 use std::collections::HashMap;
-use axum::{serve, Json, Router};
-use axum::body::Body;
-use axum::extract::{Path, Query, Request};
+use axum::{serve, Form, Json, Router};
+use axum::body::{Body, Bytes};
+use axum::extract::{Multipart, Path, Query, Request};
 use axum::extract::rejection::JsonRejection;
 use axum::response::Response;
 use axum::routing::{get, post};
+use axum_test::multipart::{MultipartForm, Part};
 use axum_test::TestServer;
-use http::{HeaderMap, Method, StatusCode, Uri};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
@@ -235,12 +236,10 @@ struct LoginResponse {
 
 #[tokio::test]
 async fn test_response_json() {
-    async fn hello_world(request: Request) -> Response {
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("X-owner", "Ekotaro")
-            .body(Body::from(format!("Hello {}", request.method())))
-            .unwrap()
+    async fn hello_world() -> Json<LoginResponse> {
+       Json(LoginResponse{
+           token: "Token".to_string()
+       })
     }
 
     let app = Router::new()
@@ -250,6 +249,107 @@ async fn test_response_json() {
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
     response.assert_status_ok();
-    response.assert_text("Hello GET");
+    response.assert_text("{\"token\":\"Token\"}");
+}
+
+#[tokio::test]
+async fn test_response_tuple() {
+    async fn hello_world() -> (Response<()>, Json<LoginResponse>) {
+        (
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("X-owner", "Ekotaro")
+                .body(())
+                .unwrap(),
+            Json(LoginResponse {
+                token: "Token".to_string()
+            }),
+        )
+    }
+
+    let app = Router::new()
+        .route("/get", get(hello_world));
+
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("{\"token\":\"Token\"}");
     response.assert_header("X-owner", "Ekotaro");
+}
+
+#[tokio::test]
+async fn test_response_tuple3() {
+    async fn hello_world() -> (StatusCode, HeaderMap, Json<LoginResponse>) {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-owner", HeaderValue::from_str("Ekotaro").unwrap());
+
+        (
+            StatusCode::OK,
+            headers.clone(),
+            Json(LoginResponse {
+                token: "Token".to_string()
+            }),
+        )
+    }
+
+    let app = Router::new()
+        .route("/get", get(hello_world));
+
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("{\"token\":\"Token\"}");
+    response.assert_header("X-owner", "Ekotaro");
+}
+
+#[tokio::test]
+async fn test_form() {
+    async fn hello_world(Form(request) : Form<LoginRequest>) -> String {
+        format!("Hello {}", request.username )
+    }
+
+    let app = Router::new().route("/post", post(hello_world));
+
+    let request = LoginRequest{
+        username: "Ekotaro".to_string(),
+        password: "Password".to_string(),
+    };
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.post("/post").form(&request).await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
+}
+
+#[tokio::test]
+async fn test_multipart() {
+    async fn hello_world(mut payload: Multipart) -> String {
+        let mut profile: Bytes = Bytes::new();
+        let mut username: String = "".to_string();
+
+        while let Some (field) = payload.next_field().await.unwrap() {
+            if field.name().unwrap_or("") == "profile" {
+                profile = field.bytes().await.unwrap();
+            } else if field.name().unwrap_or("") == "username" {
+                username = field.text().await.unwrap();
+            }
+        }
+
+        assert!(profile.len() > 0);
+        format!("Hello {}", username )
+    }
+
+    let app = Router::new().route("/post", post(hello_world));
+
+    let request = MultipartForm::new()
+        .add_text("username", "Ekotaro")
+        .add_text("password", "Password")
+        .add_part("profile", Part::bytes(Bytes::from("Contoh")));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.post("/post").multipart(request).await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
 }
