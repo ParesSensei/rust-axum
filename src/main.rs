@@ -5,6 +5,8 @@ use axum::extract::{Multipart, Path, Query, Request};
 use axum::extract::rejection::JsonRejection;
 use axum::response::Response;
 use axum::routing::{get, post};
+use axum_extra::extract::cookie::Cookie;
+use axum_extra::extract::CookieJar;
 use axum_test::multipart::{MultipartForm, Part};
 use axum_test::TestServer;
 use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
@@ -350,6 +352,44 @@ async fn test_multipart() {
 
     let server = TestServer::new(app).unwrap();
     let response = server.post("/post").multipart(request).await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
+}
+
+#[tokio::test]
+async fn test_cookie_response() {
+    async fn hello_world(query: Query<HashMap<String, String>>) -> (CookieJar, String) {
+        let name = query.get("name").unwrap();
+
+        (
+            CookieJar::new().add(Cookie::new("name", name.clone())),
+            format!("Hello {}", name.clone()),
+        )
+    }
+
+    let app = Router::new().route("/get", get(hello_world));
+
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").add_query_param("name", "Ekotaro").await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
+    response.assert_header("Set-Cookie", "name=Ekotaro");
+}
+
+#[tokio::test]
+async fn test_cookie_request() {
+    async fn hello_world(cookie: CookieJar) -> String {
+        let name = cookie.get("name").unwrap().value();
+
+        format!("Hello {}", name)
+    }
+
+    let app = Router::new().route("/get", get(hello_world));
+
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").add_header("Cookie", "name=Ekotaro").await;
     response.assert_status_ok();
     response.assert_text("Hello Ekotaro");
 }
