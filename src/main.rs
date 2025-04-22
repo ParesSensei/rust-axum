@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use axum::{serve, Json, Router};
+use axum::body::Body;
 use axum::extract::{Path, Query, Request};
+use axum::extract::rejection::JsonRejection;
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum_test::TestServer;
-use http::{HeaderMap, Method, Uri};
+use http::{HeaderMap, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
@@ -175,4 +178,78 @@ async fn test_body_json() {
     let response = server.get("/post").json(&request).await;
     response.assert_status_ok();
     response.assert_text("Hello Ekotaro");
+}
+
+#[tokio::test]
+async fn test_json_error() {
+    async fn hello_world(payload: Result<Json<LoginRequest>, JsonRejection>) -> String {
+        match payload {
+            Ok(request) => {
+                format!("Hello {}", request.username )
+            }
+            Err(error) => {
+                format!("Error: {:?}", error)
+            }
+        }
+    }
+
+    let app = Router::new()
+        .route("/post", get(hello_world));
+
+    let request = LoginRequest{
+        username: "Ekotaro".to_string(),
+        password: "Password".to_string(),
+    };
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/post").json(&request).await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
+}
+
+#[tokio::test]
+async fn test_response() {
+    async fn hello_world(request: Request) -> Response {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("X-owner", "Ekotaro")
+            .body(Body::from(format!("Hello {}", request.method())))
+            .unwrap()
+    }
+
+    let app = Router::new()
+        .route("/get", get(hello_world));
+
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+    response.assert_header("X-owner", "Ekotaro");
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LoginResponse {
+    token: String,
+}
+
+#[tokio::test]
+async fn test_response_json() {
+    async fn hello_world(request: Request) -> Response {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("X-owner", "Ekotaro")
+            .body(Body::from(format!("Hello {}", request.method())))
+            .unwrap()
+    }
+
+    let app = Router::new()
+        .route("/get", get(hello_world));
+
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+    response.assert_header("X-owner", "Ekotaro");
 }
