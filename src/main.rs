@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use axum::{serve, Router};
-use axum::extract::{Query, Request};
+use axum::{serve, Json, Router};
+use axum::extract::{Path, Query, Request};
 use axum::routing::{get, post};
 use axum_test::TestServer;
 use http::{HeaderMap, Method, Uri};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -118,4 +119,60 @@ async fn test_header() {
     let response = server.get("/get").add_header("name", "Eko").await;
     response.assert_status_ok();
     response.assert_text("Hello Eko");
+}
+
+#[tokio::test]
+async fn test_path_parameter() {
+    async fn hello_world(Path((id, id_category)): Path<(String, String)>) -> String {
+        format!("Product {}, Category {}", id, id_category )
+    }
+
+    let app = Router::new()
+        .route("/products/{id}/categories/{id_category}", get(hello_world));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/products/1/categories/2").await;
+    response.assert_status_ok();
+    response.assert_text("Product 1, Category 2");
+}
+
+#[tokio::test]
+async fn test_body_string() {
+    async fn hello_world(body: String) -> String {
+        format!("Body {}", body )
+    }
+
+    let app = Router::new()
+        .route("/post", get(hello_world));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/post").text("This is body").await;
+    response.assert_status_ok();
+    response.assert_text("Body This is body");
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LoginRequest {
+    username: String,
+    password: String,
+}
+
+#[tokio::test]
+async fn test_body_json() {
+    async fn hello_world(Json(request) : Json<LoginRequest>) -> String {
+        format!("Hello {}", request.username )
+    }
+
+    let app = Router::new()
+        .route("/post", get(hello_world));
+
+    let request = LoginRequest{
+        username: "Ekotaro".to_string(),
+        password: "Password".to_string(),
+    };
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/post").json(&request).await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
 }
