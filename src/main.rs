@@ -2,7 +2,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Multipart, Path, Query, Request};
 use axum::middleware::{from_fn, map_request, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{serve, Form, Json, Router};
 use axum_extra::extract::cookie::Cookie;
@@ -12,6 +12,8 @@ use axum_test::TestServer;
 use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use anyhow::anyhow;
+use axum::error_handling::HandleError;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -409,7 +411,80 @@ async fn test_middleware() {
         .layer(from_fn(log_middleware));
 
     let server = TestServer::new(app).unwrap();
-    let response = server.get("/get").add_header("Cookie", "name=Ekotaro").await;
+    let response = server
+        .get("/get")
+        .add_header("Cookie", "name=Ekotaro")
+        .await;
     response.assert_status_ok();
     response.assert_text("Hello GET 12345");
+}
+
+struct AppError {
+    code: i32,
+    message: String,
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::from_u16(self.code as u16).unwrap(),
+            self.message,
+        )
+            .into_response()
+    }
+}
+
+#[tokio::test]
+async fn test_error_handling() {
+    async fn hello_world(method: Method) -> Result<String, AppError> {
+        if method == Method::POST {
+            Ok("OK".to_string())
+        } else {
+            Err(AppError {
+                code : 400,
+                message: "Bad Request".to_string(),
+            })
+        }
+    }
+
+    let app = Router::new()
+        .route("/get", get(hello_world))
+        .route("/post", post(hello_world));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status(StatusCode::BAD_REQUEST);
+    response.assert_text("Bad Request");
+
+    let response = server.post("/post").await;
+    response.assert_status(StatusCode::OK);
+    response.assert_text("OK");
+}
+
+#[tokio::test]
+async fn test_unexpected_error() {
+    async fn route(request: Request) -> Result<Response, anyhow::Error> {
+        if request.method() == Method::POST {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(Body::empty())?)
+        } else {
+            Err(anyhow!("Bad Request"))
+        }
+    }
+
+    async fn handle_error(err: anyhow::Error) -> (StatusCode, String) {
+       ( StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Internal Server Error: {}", err),)
+    }
+
+    let route_service = tower::service_fn(route);
+
+    let app = Router::new()
+        .route_service("/get", HandleError::new(route_service, handle_error));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status(StatusCode::INTERNAL_SERVER_ERROR);
+    response.assert_text("Internal Server Error: Bad Request");
 }
