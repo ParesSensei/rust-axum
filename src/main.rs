@@ -1,10 +1,10 @@
 use axum::body::{Body, Bytes};
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Multipart, Path, Query, Request};
+use axum::extract::{Multipart, Path, Query, Request, State};
 use axum::middleware::{from_fn, map_request, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{serve, Form, Json, Router};
+use axum::{serve, Extension, Form, Json, Router};
 use axum_extra::extract::cookie::Cookie;
 use axum_extra::extract::CookieJar;
 use axum_test::multipart::{MultipartForm, Part};
@@ -12,6 +12,8 @@ use axum_test::TestServer;
 use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::format;
+use std::sync::Arc;
 use anyhow::anyhow;
 use axum::error_handling::HandleError;
 use tokio::net::TcpListener;
@@ -487,4 +489,65 @@ async fn test_unexpected_error() {
     let response = server.get("/get").await;
     response.assert_status(StatusCode::INTERNAL_SERVER_ERROR);
     response.assert_text("Internal Server Error: Bad Request");
+}
+
+struct DatabaseConfig {
+    total: i32
+}
+
+#[tokio::test]
+async fn test_state_extractor() {
+    let database_state = Arc::new(DatabaseConfig { total: 100 });
+
+    async fn route(State(database): State<Arc<DatabaseConfig>>) -> String {
+        format!("Total: {}", database.total)
+    }
+
+    let app = Router::new()
+    .route("/get", get(route))
+    .with_state(database_state);
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("Total: 100");
+}
+
+#[tokio::test]
+async fn test_state_extensionr() {
+    let database_state = Arc::new(DatabaseConfig { total: 100 });
+
+    async fn route(Extension(database): Extension<Arc<DatabaseConfig>>) -> String {
+        format!("Total: {}", database.total)
+    }
+
+    let app = Router::new()
+        .route("/get", get(route))
+        .layer(Extension(database_state));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("Total: 100");
+}
+
+#[tokio::test]
+async fn test_state_closure_capture() {
+    let database_state = Arc::new(DatabaseConfig { total: 100 });
+
+    async fn route(database: Arc<DatabaseConfig>) -> String {
+        format!("Total: {}", database.total)
+    }
+
+    let app = Router::new()
+        .route("/get", get({
+            let database_state = Arc::clone(&database_state);
+            move || route(database_state)
+        }))
+        .layer(Extension(database_state));
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/get").await;
+    response.assert_status_ok();
+    response.assert_text("Total: 100");
 }
