@@ -12,7 +12,6 @@ use axum_test::TestServer;
 use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::format;
 use std::sync::Arc;
 use anyhow::anyhow;
 use axum::error_handling::HandleError;
@@ -514,7 +513,7 @@ async fn test_state_extractor() {
 }
 
 #[tokio::test]
-async fn test_state_extensionr() {
+async fn test_state_extension() {
     let database_state = Arc::new(DatabaseConfig { total: 100 });
 
     async fn route(Extension(database): Extension<Arc<DatabaseConfig>>) -> String {
@@ -550,4 +549,48 @@ async fn test_state_closure_capture() {
     let response = server.get("/get").await;
     response.assert_status_ok();
     response.assert_text("Total: 100");
+}
+
+#[tokio::test]
+async fn test_multiple_route() {
+    async fn hello_world(method: Method) -> String {
+        format!("Hello {}", method)
+    }
+
+    let first = Router::new().route("/first", get(hello_world));
+    let second = Router::new().route("/second", get(hello_world));
+
+    let app = Router::new().merge(first).merge(second);
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/first").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+
+    let response = server.get("/second").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+}
+
+#[tokio::test]
+async fn test_multiple_route_nest() {
+    async fn hello_world(method: Method) -> String {
+        format!("Hello {}", method)
+    }
+
+    let first = Router::new().route("/first", get(hello_world));
+    let second = Router::new().route("/second", get(hello_world));
+
+    let app = Router::new()
+        .nest("/api/users", first)
+        .nest("/api/products", second);
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/api/users/first").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+
+    let response = server.get("/api/products/second").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
 }
