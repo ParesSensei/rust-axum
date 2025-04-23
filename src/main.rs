@@ -1,4 +1,6 @@
+use anyhow::anyhow;
 use axum::body::{Body, Bytes};
+use axum::error_handling::HandleError;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Multipart, Path, Query, Request, State};
 use axum::middleware::{from_fn, map_request, Next};
@@ -13,8 +15,6 @@ use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use anyhow::anyhow;
-use axum::error_handling::HandleError;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -442,7 +442,7 @@ async fn test_error_handling() {
             Ok("OK".to_string())
         } else {
             Err(AppError {
-                code : 400,
+                code: 400,
                 message: "Bad Request".to_string(),
             })
         }
@@ -475,14 +475,15 @@ async fn test_unexpected_error() {
     }
 
     async fn handle_error(err: anyhow::Error) -> (StatusCode, String) {
-       ( StatusCode::INTERNAL_SERVER_ERROR,
-        format!("Internal Server Error: {}", err),)
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Internal Server Error: {}", err),
+        )
     }
 
     let route_service = tower::service_fn(route);
 
-    let app = Router::new()
-        .route_service("/get", HandleError::new(route_service, handle_error));
+    let app = Router::new().route_service("/get", HandleError::new(route_service, handle_error));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
@@ -491,7 +492,7 @@ async fn test_unexpected_error() {
 }
 
 struct DatabaseConfig {
-    total: i32
+    total: i32,
 }
 
 #[tokio::test]
@@ -503,8 +504,8 @@ async fn test_state_extractor() {
     }
 
     let app = Router::new()
-    .route("/get", get(route))
-    .with_state(database_state);
+        .route("/get", get(route))
+        .with_state(database_state);
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
@@ -539,10 +540,13 @@ async fn test_state_closure_capture() {
     }
 
     let app = Router::new()
-        .route("/get", get({
-            let database_state = Arc::clone(&database_state);
-            move || route(database_state)
-        }))
+        .route(
+            "/get",
+            get({
+                let database_state = Arc::clone(&database_state);
+                move || route(database_state)
+            }),
+        )
         .layer(Extension(database_state));
 
     let server = TestServer::new(app).unwrap();
@@ -593,4 +597,51 @@ async fn test_multiple_route_nest() {
     let response = server.get("/api/products/second").await;
     response.assert_status_ok();
     response.assert_text("Hello GET");
+}
+
+#[tokio::test]
+async fn test_fallback() {
+    async fn hello_world(method: Method) -> String {
+        format!("Hello {}", method)
+    }
+
+    async fn fallback(request: Request) -> (StatusCode, String) {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Page {} is not found", request.uri()),
+        )
+    }
+
+    async fn not_allowed(request: Request) -> (StatusCode, String) {
+        (
+            StatusCode::METHOD_NOT_ALLOWED,
+            format!("Page {} is not found", request.uri()),
+        )
+    }
+
+    let first = Router::new().route("/first", get(hello_world));
+    let second = Router::new().route("/second", get(hello_world));
+
+    let app = Router::new()
+        .merge(first)
+        .merge(second)
+        .fallback(fallback)
+        .method_not_allowed_fallback(not_allowed);
+
+    let server = TestServer::new(app).unwrap();
+    let response = server.get("/first").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+
+    let response = server.get("/second").await;
+    response.assert_status_ok();
+    response.assert_text("Hello GET");
+
+    let response = server.get("/wrong").await;
+    response.assert_status_not_found();
+    response.assert_text("Page http://localhost/wrong is not found");
+
+    let response = server.post("/first").await;
+    response.assert_status(StatusCode::METHOD_NOT_ALLOWED);
+    response.assert_text("Page http://localhost/first is not found");
 }
