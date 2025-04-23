@@ -1,22 +1,22 @@
-use std::collections::HashMap;
-use axum::{serve, Form, Json, Router};
 use axum::body::{Body, Bytes};
-use axum::extract::{Multipart, Path, Query, Request};
 use axum::extract::rejection::JsonRejection;
+use axum::extract::{Multipart, Path, Query, Request};
+use axum::middleware::{from_fn, map_request, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
+use axum::{serve, Form, Json, Router};
 use axum_extra::extract::cookie::Cookie;
 use axum_extra::extract::CookieJar;
 use axum_test::multipart::{MultipartForm, Part};
 use axum_test::TestServer;
 use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new()
-        .route("/", get(|| async { "Hello, world!" }));
+    let app = Router::new().route("/", get(|| async { "Hello, world!" }));
 
     let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
@@ -25,8 +25,7 @@ async fn main() {
 
 #[tokio::test]
 async fn text_axum() {
-    let app = Router::new()
-        .route("/", get(|| async { "Hello, world!" }));
+    let app = Router::new().route("/", get(|| async { "Hello, world!" }));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/").await;
@@ -78,7 +77,7 @@ async fn test_request() {
 #[tokio::test]
 async fn test_uri() {
     async fn hello_world(uri: Uri, method: Method) -> String {
-        format!("Hello {} {}",method, uri )
+        format!("Hello {} {}", method, uri)
     }
 
     let app = Router::new()
@@ -97,13 +96,12 @@ async fn test_uri() {
 
 #[tokio::test]
 async fn test_query() {
-    async fn hello_world(Query(params) : Query<HashMap<String, String>>) -> String {
+    async fn hello_world(Query(params): Query<HashMap<String, String>>) -> String {
         let name = params.get("name").unwrap();
-        format!("Hello {}",name )
+        format!("Hello {}", name)
     }
 
-    let app = Router::new()
-        .route("/get", get(hello_world));
+    let app = Router::new().route("/get", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").add_query_param("name", "Eko").await;
@@ -115,11 +113,10 @@ async fn test_query() {
 async fn test_header() {
     async fn hello_world(headers: HeaderMap) -> String {
         let name = headers["name"].to_str().unwrap();
-        format!("Hello {}",name )
+        format!("Hello {}", name)
     }
 
-    let app = Router::new()
-        .route("/get", get(hello_world));
+    let app = Router::new().route("/get", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").add_header("name", "Eko").await;
@@ -130,11 +127,10 @@ async fn test_header() {
 #[tokio::test]
 async fn test_path_parameter() {
     async fn hello_world(Path((id, id_category)): Path<(String, String)>) -> String {
-        format!("Product {}, Category {}", id, id_category )
+        format!("Product {}, Category {}", id, id_category)
     }
 
-    let app = Router::new()
-        .route("/products/{id}/categories/{id_category}", get(hello_world));
+    let app = Router::new().route("/products/{id}/categories/{id_category}", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/products/1/categories/2").await;
@@ -145,11 +141,10 @@ async fn test_path_parameter() {
 #[tokio::test]
 async fn test_body_string() {
     async fn hello_world(body: String) -> String {
-        format!("Body {}", body )
+        format!("Body {}", body)
     }
 
-    let app = Router::new()
-        .route("/post", get(hello_world));
+    let app = Router::new().route("/post", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/post").text("This is body").await;
@@ -165,14 +160,13 @@ struct LoginRequest {
 
 #[tokio::test]
 async fn test_body_json() {
-    async fn hello_world(Json(request) : Json<LoginRequest>) -> String {
-        format!("Hello {}", request.username )
+    async fn hello_world(Json(request): Json<LoginRequest>) -> String {
+        format!("Hello {}", request.username)
     }
 
-    let app = Router::new()
-        .route("/post", get(hello_world));
+    let app = Router::new().route("/post", get(hello_world));
 
-    let request = LoginRequest{
+    let request = LoginRequest {
         username: "Ekotaro".to_string(),
         password: "Password".to_string(),
     };
@@ -188,7 +182,7 @@ async fn test_json_error() {
     async fn hello_world(payload: Result<Json<LoginRequest>, JsonRejection>) -> String {
         match payload {
             Ok(request) => {
-                format!("Hello {}", request.username )
+                format!("Hello {}", request.username)
             }
             Err(error) => {
                 format!("Error: {:?}", error)
@@ -196,10 +190,9 @@ async fn test_json_error() {
         }
     }
 
-    let app = Router::new()
-        .route("/post", get(hello_world));
+    let app = Router::new().route("/post", get(hello_world));
 
-    let request = LoginRequest{
+    let request = LoginRequest {
         username: "Ekotaro".to_string(),
         password: "Password".to_string(),
     };
@@ -220,9 +213,7 @@ async fn test_response() {
             .unwrap()
     }
 
-    let app = Router::new()
-        .route("/get", get(hello_world));
-
+    let app = Router::new().route("/get", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
@@ -239,14 +230,12 @@ struct LoginResponse {
 #[tokio::test]
 async fn test_response_json() {
     async fn hello_world() -> Json<LoginResponse> {
-       Json(LoginResponse{
-           token: "Token".to_string()
-       })
+        Json(LoginResponse {
+            token: "Token".to_string(),
+        })
     }
 
-    let app = Router::new()
-        .route("/get", get(hello_world));
-
+    let app = Router::new().route("/get", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
@@ -264,14 +253,12 @@ async fn test_response_tuple() {
                 .body(())
                 .unwrap(),
             Json(LoginResponse {
-                token: "Token".to_string()
+                token: "Token".to_string(),
             }),
         )
     }
 
-    let app = Router::new()
-        .route("/get", get(hello_world));
-
+    let app = Router::new().route("/get", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
@@ -290,14 +277,12 @@ async fn test_response_tuple3() {
             StatusCode::OK,
             headers.clone(),
             Json(LoginResponse {
-                token: "Token".to_string()
+                token: "Token".to_string(),
             }),
         )
     }
 
-    let app = Router::new()
-        .route("/get", get(hello_world));
-
+    let app = Router::new().route("/get", get(hello_world));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").await;
@@ -308,13 +293,13 @@ async fn test_response_tuple3() {
 
 #[tokio::test]
 async fn test_form() {
-    async fn hello_world(Form(request) : Form<LoginRequest>) -> String {
-        format!("Hello {}", request.username )
+    async fn hello_world(Form(request): Form<LoginRequest>) -> String {
+        format!("Hello {}", request.username)
     }
 
     let app = Router::new().route("/post", post(hello_world));
 
-    let request = LoginRequest{
+    let request = LoginRequest {
         username: "Ekotaro".to_string(),
         password: "Password".to_string(),
     };
@@ -331,7 +316,7 @@ async fn test_multipart() {
         let mut profile: Bytes = Bytes::new();
         let mut username: String = "".to_string();
 
-        while let Some (field) = payload.next_field().await.unwrap() {
+        while let Some(field) = payload.next_field().await.unwrap() {
             if field.name().unwrap_or("") == "profile" {
                 profile = field.bytes().await.unwrap();
             } else if field.name().unwrap_or("") == "username" {
@@ -340,7 +325,7 @@ async fn test_multipart() {
         }
 
         assert!(profile.len() > 0);
-        format!("Hello {}", username )
+        format!("Hello {}", username)
     }
 
     let app = Router::new().route("/post", post(hello_world));
@@ -369,7 +354,6 @@ async fn test_cookie_response() {
 
     let app = Router::new().route("/get", get(hello_world));
 
-
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").add_query_param("name", "Ekotaro").await;
     response.assert_status_ok();
@@ -387,9 +371,45 @@ async fn test_cookie_request() {
 
     let app = Router::new().route("/get", get(hello_world));
 
+    let server = TestServer::new(app).unwrap();
+    let response = server
+        .get("/get")
+        .add_header("Cookie", "name=Ekotaro")
+        .await;
+    response.assert_status_ok();
+    response.assert_text("Hello Ekotaro");
+}
+
+async fn log_middleware(request: Request, next: Next) -> Response {
+    println!("receive request {} {}", request.method(), request.uri());
+    let response = next.run(request).await;
+    println!("Send response {}", response.status());
+    response
+}
+
+async fn request_id_middleware<T>(mut request: Request<T>) -> Request<T> {
+    let request_id = "12345";
+    request
+        .headers_mut()
+        .insert("X-Request-Id", request_id.parse().unwrap());
+    request
+}
+
+#[tokio::test]
+async fn test_middleware() {
+    async fn hello_world(method: Method, header_map: HeaderMap) -> String {
+        println!("Execute handler");
+        let request_id = header_map.get("X-Request-Id").unwrap().to_str().unwrap();
+        format!("Hello {} {}", method, request_id)
+    }
+
+    let app = Router::new()
+        .route("/get", get(hello_world))
+        .layer(map_request(request_id_middleware))
+        .layer(from_fn(log_middleware));
 
     let server = TestServer::new(app).unwrap();
     let response = server.get("/get").add_header("Cookie", "name=Ekotaro").await;
     response.assert_status_ok();
-    response.assert_text("Hello Ekotaro");
+    response.assert_text("Hello GET 12345");
 }
